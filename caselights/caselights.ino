@@ -39,18 +39,111 @@ bool caseopen = false;    // is case open?
 byte leds[lednum][4];     // array [module] [r,g,b, lum]
 uint16_t presstime =0;    // time button was last pressed
 uint16_t settime[4] = {0,0,0,0};      // time [r,g,b, lum] was last set
-byte lastset;
+byte lastset = 0;
 byte mode;
 bool pressresolve = false;
+byte usersetting [5][lednum][4];
+bool serialset = false;
 
 
 
 void setup()
 {
 	digitalWrite(resetpin,HIGH);
-
 	Serial.begin(19200);
-	Serial.print("Select a profile to edit [a-e]");
+	Serial.println("BRIGHT BOY setup complete");
+	Serial.println("Enter a character to customise colours");
+
+}
+
+bool conv()
+{
+	serialset = true;
+	bool staying = true;
+	char convo;
+	byte input[4];
+	byte chan=127;
+	Serial.println("Select a channel to edit [a-e]");
+
+	while(!Serial.available());
+	convo = Serial.read();
+	if (convo == 'a') chan = 0;
+	else if (convo == 'b') chan = 1;
+	else if (convo == 'c') chan = 2;
+	else if (convo == 'd') chan = 3;
+	else if (convo == 'e') chan = 4;
+	else
+	{
+		serialset = false;
+		return false;
+	}
+
+	while (staying)
+	{
+		Serial.println("Edit channel generic colour:");
+		Serial.println("Input 4 channel 8 bit colour [r][g][b][l]");
+		while (!Serial.available())
+		{
+			for(byte l=0; l<4; l++)
+			{
+				input[l] = Serial.read();
+			}
+		}
+
+		for(byte i=0; i<lednum ;i++)
+		{
+			for(byte j=0; j<4; j++)
+			{
+				usersetting[chan][i][j] = input[j];
+			}
+		}
+
+		bool staychan = true;
+		while (staychan)
+		{
+			Serial.println("Edit a pixel? [y/n]");
+			while(!Serial.available());
+			convo = Serial.read();
+			if (convo == 'y')
+			{
+				Serial.print("Enter pixel number 0 - ");
+				Serial.println((lednum - 1));
+
+				while(!Serial.available());
+				byte setpx = Serial.read();
+				if(setpx < lednum)
+				{
+					Serial.println("Edit pixel colour:");
+					Serial.println("Input 4 channel 8 bit colour [r] [g] [b] [l]");
+					while (!Serial.available())
+					{
+						for(byte l=0; l<4; l++)
+						{
+							input[l] = Serial.read();
+						}
+					}
+					for(byte j=0; j<4; j++)
+					{
+						usersetting[chan][setpx][j] = input[j];
+					}
+				}
+				else
+				{
+					Serial.println("Invalid pixel value!");
+					staychan = false;
+				}
+
+			}
+			else staychan = false;
+		}
+
+		Serial.println("edit another channel? [y/n]");
+		while (!Serial.available()) {}
+		convo = Serial.read();
+		if(convo == 'n') staying = false;
+	}
+	serialset = false;
+	return true;
 }
 
 
@@ -75,7 +168,13 @@ void advancemode()
 
 void setlevel()	//set leds to current colour after button released
 {
-
+	uint32_t level = millis() - presstime;
+	level = (level << 8)/6550;
+	for (int i = 0; i < lednum; i++)
+	{
+		usersetting[4][i][lastset] = (byte)level;
+	}
+	lastset++;
 }
 
 
@@ -116,15 +215,17 @@ void setleds()	//to figure out & set state of leds
     presstime = millis();
     buttonprs();
   }
+
+
   uint16_t set[3];
   for(byte i=0; i < lednum; i++)
   {
     for(byte j=0; j<3; j++)
     {
-      set[j] = leds[i][j]*leds[i][4];   //led = (brightness*colour) = (lum*col)/255
+      set[j] = leds[i][j]*leds[i][3];   //led = (brightness*colour) = (lum*col)/255
       set[j] = set[j] << 8;             // div by 255 shortcut div by 256 via bit shift
     }
-    cases.setPixelColor(i, cases.Color(set[1],set[2],set[3]));
+    cases.setPixelColor(i, (byte)set[1], (byte)set[2], (byte)set[3]);
   }
 }
 
@@ -141,6 +242,11 @@ void detect()	// polls each external sensor and updates vars
 	}
 
 	if (pressresolve) buttonprs();
+
+	if(Serial.available())
+	{
+		if(!conv()) Serial.println("Configuration failed!");
+	}
 
 }
 
